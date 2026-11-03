@@ -1,38 +1,47 @@
+import os
 import pandas as pd
 import torch
 from torch_geometric.data import Data
 from sklearn.preprocessing import LabelEncoder
 
-df = pd.read_csv("C:\\Users\\redde\\OneDrive\\Desktop\\GNN-Recommender\\data\\ratings_with_titles.csv")
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+csv_path = os.path.join(ROOT_DIR, "data", "ratings_with_titles.csv")
+df = pd.read_csv(csv_path)
 
-# Encode user and item ids
+# Encode user and item IDs
 user_enc = LabelEncoder()
 item_enc = LabelEncoder()
 
-df["user_id"] = user_enc.fit_transform(df["user"])
-df["item_id"] = item_enc.fit_transform(df["item"])
+user_ids = user_enc.fit_transform(df["user"])
+item_ids = item_enc.fit_transform(df["item"])
 
-num_users = df["user_id"].nunique()
-num_items = df["item_id"].nunique()
+num_users = int(len(user_enc.classes_))
+num_items = int(len(item_enc.classes_))
 
-users = df["user_id"].values
-items = df["item_id"].values + num_users  # shift items
+# Shift item IDs into bipartite graph index space
+shifted_items = item_ids + num_users
 
-edges = []
+# Construct bidirectional edges [u, i] and [i, u]
+u = torch.as_tensor(user_ids, dtype=torch.long)
+i = torch.as_tensor(shifted_items, dtype=torch.long)
 
-for u, i in zip(users, items):
-    edges.append([u, i])
-    edges.append([i, u])
+src = torch.empty(2 * len(u), dtype=torch.long)
+dst = torch.empty(2 * len(i), dtype=torch.long)
+src[0::2] = u
+src[1::2] = i
+dst[0::2] = i
+dst[1::2] = u
 
-edge_index = torch.tensor(edges, dtype=torch.long).t()
+edge_index = torch.stack([src, dst], dim=0)
 
 data = Data(edge_index=edge_index)
 
-# Save everything
+# Save graph package
+save_path = os.path.join(ROOT_DIR, "graph", "graph_data.pt")
 torch.save({
     "graph": data,
     "num_users": num_users,
     "num_items": num_items
-}, "graph/graph_data.pt")
+}, save_path)
 
 print("Graph rebuilt successfully!")
